@@ -45,6 +45,7 @@ import {
   Area
 } from "recharts";
 import { predictAQI, searchAQIByLocation, type AQIInput, type AQIResult } from "./services/gemini";
+import { predictCropViability, type CropPredictResult } from "./services/crop";
 import { cn } from "./lib/utils";
 
 const AQI_CATEGORIES = {
@@ -58,7 +59,7 @@ const AQI_CATEGORIES = {
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
-  const [activeTab, setActiveTab] = useState<"home" | "about" | "prediction" | "visualization" | "forecast">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "about" | "prediction" | "visualization" | "forecast" | "crops">("home");
   const [loading, setLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -81,6 +82,8 @@ export default function App() {
     co: 0.5,
     so2: 5
   });
+  const [cropResult, setCropResult] = useState<CropPredictResult | null>(null);
+  const [cropLoading, setCropLoading] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -137,6 +140,29 @@ export default function App() {
   const handleInputChange = (id: string, value: string) => {
     const numValue = value === "" ? 0 : parseFloat(value);
     setInputs(prev => ({ ...prev, [id]: numValue }));
+  };
+
+  const handleCropPredict = async () => {
+    if (!result) return;
+    
+    setCropLoading(true);
+    setError(null);
+    try {
+      const cropPrediction = await predictCropViability(
+        inputs.pm25,
+        inputs.pm10,
+        inputs.no2,
+        inputs.co,
+        inputs.so2,
+        result.aqi
+      );
+      setCropResult(cropPrediction);
+      setActiveTab("crops");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to predict crops");
+    } finally {
+      setCropLoading(false);
+    }
   };
 
   const getCategoryStyles = (category: string) => {
@@ -244,6 +270,7 @@ export default function App() {
                   { id: "prediction", label: "Prediction" },
                   { id: "forecast", label: "Forecast" },
                   { id: "visualization", label: "Visualization" },
+                  { id: "crops", label: "Crops & Agriculture" },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -1021,6 +1048,23 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+
+                    <div className="flex gap-4 justify-center pt-8">
+                      <button 
+                        onClick={handleCropPredict}
+                        disabled={cropLoading}
+                        className="bg-emerald-500 text-white px-8 py-4 rounded-2xl font-bold hover:bg-emerald-600 disabled:opacity-50 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/30"
+                      >
+                        {cropLoading ? <RefreshCw size={18} className="animate-spin" /> : <Droplets size={18} />}
+                        Predict Suitable Crops
+                      </button>
+                      <button 
+                        onClick={() => setActiveTab("forecast")}
+                        className="bg-white border border-black/5 px-8 py-4 rounded-2xl font-bold hover:bg-gray-50 transition-all"
+                      >
+                        View Forecast
+                      </button>
+                    </div>
                   ) : (
                     <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center space-y-6 bg-white rounded-[3rem] border border-dashed border-gray-200">
                       <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center text-gray-300">
@@ -1260,6 +1304,193 @@ export default function App() {
                       >
                         Start Prediction
                       </button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {activeTab === "crops" && (
+                <motion.div
+                  key="crops"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="space-y-8 pb-12"
+                >
+                  {cropResult ? (
+                    <div className="space-y-8">
+                      <div className="text-center space-y-4 max-w-3xl mx-auto">
+                        <h2 className="text-4xl font-black tracking-tight">Agricultural Predictions</h2>
+                        <p className="text-gray-500">Based on current air quality conditions, here's which crops can thrive in your area.</p>
+                      </div>
+
+                      {/* Productivity Level */}
+                      <div className="bg-gradient-to-br from-emerald-500/10 to-blue-500/10 p-8 rounded-[2.5rem] border border-emerald-500/20 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Productivity Status</p>
+                            <h3 className="text-2xl font-black">{cropResult.productivityLevel}</h3>
+                          </div>
+                          <div className={cn(
+                            "w-16 h-16 rounded-2xl flex items-center justify-center text-2xl",
+                            cropResult.productivityLevel === "High" ? "bg-emerald-500/20 text-emerald-600" :
+                            cropResult.productivityLevel === "Moderate" ? "bg-yellow-500/20 text-yellow-600" :
+                            "bg-red-500/20 text-red-600"
+                          )}>
+                            {cropResult.productivityLevel === "High" ? "✓" : cropResult.productivityLevel === "Moderate" ? "◐" : "✗"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Best Crops */}
+                      <div className="space-y-4">
+                        <h3 className="text-2xl font-black">Best Crops For Your Area</h3>
+                        <div className="grid md:grid-cols-3 gap-4">
+                          {cropResult.bestCrops.map((crop, i) => (
+                            <motion.div
+                              key={i}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: i * 0.1 }}
+                              className="bg-white p-6 rounded-2xl border-2 border-emerald-500 shadow-lg hover:shadow-xl transition-all flex items-center justify-between"
+                            >
+                              <span className="text-xl font-bold">{crop}</span>
+                              <CheckCircle2 className="text-emerald-500" size={24} />
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* All Crops */}
+                      <div className="space-y-4">
+                        <h3 className="text-2xl font-black">Crop Viability Analysis</h3>
+                        <div className="grid gap-3">
+                          {cropResult.viableCrops.map((crop, i) => (
+                            <motion.div
+                              key={i}
+                              initial={{ opacity: 0, x: -20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: i * 0.05 }}
+                              className={cn(
+                                "p-4 rounded-2xl border transition-all",
+                                crop.suitable 
+                                  ? "bg-emerald-50 border-emerald-200 hover:shadow-md" 
+                                  : "bg-gray-50 border-gray-200 opacity-60"
+                              )}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-3 mb-2">
+                                    <span className="font-bold text-lg">{crop.crop}</span>
+                                    <div className="flex-1 max-w-xs">
+                                      <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                                        <motion.div 
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${crop.suitabilityScore}%` }}
+                                          transition={{ duration: 1, ease: "easeOut" }}
+                                          className={cn(
+                                            "h-full",
+                                            crop.suitable ? "bg-emerald-500" : "bg-gray-400"
+                                          )}
+                                        />
+                                      </div>
+                                    </div>
+                                    <span className="text-sm font-bold text-gray-600 w-12 text-right">{crop.suitabilityScore}%</span>
+                                  </div>
+                                  <p className="text-xs text-gray-600">{crop.reason}</p>
+                                </div>
+                                <div className="ml-4">
+                                  {crop.suitable ? (
+                                    <CheckCircle2 className="text-emerald-500" size={20} />
+                                  ) : (
+                                    <AlertTriangle className="text-gray-400" size={20} />
+                                  )}
+                                </div>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Recommendations */}
+                      <div className="grid md:grid-cols-2 gap-6">
+                        <div className="bg-blue-50 p-6 rounded-2xl border border-blue-200 space-y-3">
+                          <div className="flex items-center gap-2">
+                            <Info className="text-blue-600" size={20} />
+                            <h4 className="font-bold text-lg">Farming Recommendations</h4>
+                          </div>
+                          <p className="text-sm text-gray-700 leading-relaxed">{cropResult.agriculturalRecommendation}</p>
+                        </div>
+
+                        <div className="bg-purple-50 p-6 rounded-2xl border border-purple-200 space-y-3">
+                          <div className="flex items-center gap-2">
+                            <BarChart3 className="text-purple-600" size={20} />
+                            <h4 className="font-bold text-lg">Seasonal Advice</h4>
+                          </div>
+                          <p className="text-sm text-gray-700 leading-relaxed">{cropResult.seasonalAdvice}</p>
+                        </div>
+                      </div>
+
+                      {/* Risk Factors */}
+                      {cropResult.riskFactors.length > 0 && (
+                        <div className="bg-orange-50 p-6 rounded-2xl border border-orange-200 space-y-3">
+                          <div className="flex items-center gap-2">
+                            <AlertTriangle className="text-orange-600" size={20} />
+                            <h4 className="font-bold text-lg">Risk Factors</h4>
+                          </div>
+                          <ul className="space-y-2">
+                            {cropResult.riskFactors.map((risk, i) => (
+                              <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
+                                <span className="text-orange-600 mt-1">•</span>
+                                <span>{risk}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Action Buttons */}
+                      <div className="flex gap-4 justify-center pt-8">
+                        <button 
+                          onClick={() => setActiveTab("visualization")}
+                          className="bg-emerald-500 text-white px-8 py-3 rounded-2xl font-bold hover:bg-emerald-600 transition-all flex items-center gap-2"
+                        >
+                          <ArrowRight size={18} />
+                          Back to AQI Data
+                        </button>
+                        <button 
+                          onClick={() => setActiveTab("prediction")}
+                          className="bg-white border border-black/5 px-8 py-3 rounded-2xl font-bold hover:bg-gray-50 transition-all"
+                        >
+                          New Prediction
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="max-w-md mx-auto bg-gray-50 rounded-[2.5rem] p-12 text-center space-y-6 border border-dashed border-gray-200">
+                      <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center mx-auto shadow-sm text-gray-300">
+                        <Droplets size={40} />
+                      </div>
+                      <div className="space-y-2">
+                        <h3 className="text-xl font-bold">No Crop Data Yet</h3>
+                        <p className="text-sm text-gray-500">First, run an air quality prediction to get crop viability recommendations.</p>
+                      </div>
+                      {result ? (
+                        <button 
+                          onClick={handleCropPredict}
+                          disabled={cropLoading}
+                          className="px-6 py-3 bg-emerald-500 text-white rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-emerald-600 disabled:opacity-50 transition-all flex items-center justify-center gap-2 mx-auto"
+                        >
+                          {cropLoading ? <RefreshCw size={16} className="animate-spin" /> : "Predict Crops"}
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={() => setActiveTab("prediction")}
+                          className="px-6 py-3 bg-emerald-500 text-white rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-emerald-600 transition-all"
+                        >
+                          Start Prediction
+                        </button>
+                      )}
                     </div>
                   )}
                 </motion.div>
